@@ -1,29 +1,44 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useWorkers } from "../context/WorkerContext"
 
 export default function ActivityFeed() {
   const { events, acknowledgeAlert, dispatchMedicalHelp, resolveEvent } = useWorkers()
   const recent = events.slice(0, 8)
 
-  // Local state to track the resolution step for each specific event independently.
-  // 0 = Open, 1 = Acknowledged, 2 = Dispatched, 3 = Resolved
   const [resolutionSteps, setResolutionSteps] = useState<Record<string, number>>({})
+
+  // Load saved states from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("event_resolution_steps")
+    if (saved) {
+      try {
+        setResolutionSteps(JSON.parse(saved))
+      } catch (e) {
+        // ignore parse errors
+      }
+    }
+  }, [])
+
+  const saveSteps = (newSteps: Record<string, number>) => {
+    setResolutionSteps(newSteps)
+    localStorage.setItem("event_resolution_steps", JSON.stringify(newSteps))
+  }
 
   const handleAcknowledge = (eventId: string, workerId: string) => {
     acknowledgeAlert(eventId, workerId)
-    setResolutionSteps(prev => ({ ...prev, [eventId]: 1 }))
+    saveSteps({ ...resolutionSteps, [eventId]: 1 })
   }
 
   const handleDispatch = (eventId: string) => {
     dispatchMedicalHelp(eventId)
-    setResolutionSteps(prev => ({ ...prev, [eventId]: 2 }))
+    saveSteps({ ...resolutionSteps, [eventId]: 2 })
   }
 
   const handleResolve = (eventId: string) => {
     resolveEvent(eventId)
-    setResolutionSteps(prev => ({ ...prev, [eventId]: 3 }))
+    saveSteps({ ...resolutionSteps, [eventId]: 3 })
   }
 
   return (

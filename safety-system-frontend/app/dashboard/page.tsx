@@ -33,32 +33,57 @@ export default function Dashboard() {
   } = useWorkers()
 
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null)
-  
-  // Lifted state for the Active Telemetry View dropdown
   const [activeTelemetryId, setActiveTelemetryId] = useState("W01")
 
-  // Initialize selectedDate to local today (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
+
+  // Track resolution states in dashboard to calculate active alerts dynamically
+  const [resolutionSteps, setResolutionSteps] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const role = localStorage.getItem("role")
     if (!role) {
       router.push("/login")
     }
+
+    const loadSteps = () => {
+      const saved = localStorage.getItem("event_resolution_steps")
+      if (saved) {
+        try {
+          setResolutionSteps(JSON.parse(saved))
+        } catch (e) {}
+      }
+    }
+    loadSteps()
+
+    // Listen for storage changes if multiple tabs/components update it
+    window.addEventListener("storage", loadSteps)
+    const interval = setInterval(loadSteps, 1000)
+    return () => {
+      window.removeEventListener("storage", loadSteps)
+      clearInterval(interval)
+    }
   }, [router])
 
   const activeWorkers = workers.filter((worker) => worker.active)
 
-  const activeAlerts = workers.filter(
-    (worker) =>
-      worker.active &&
-      (worker.status === "warning" || worker.status === "alert" || worker.status === "critical")
-  )
+  // FIX: Only count critical/high alerts that are NOT marked as resolved (step 3)
+  const activeAlerts = events.filter((event) => {
+    if (event.severity !== "CRITICAL" && event.severity !== "HIGH") return false
+    
+    // Check if resolved
+    if (resolutionSteps[event.id] === 3) return false
 
-  // Filter falls based on the selected date
+    const d = new Date(event.timestamp)
+    if (Number.isNaN(d.getTime())) return false
+    
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return dateStr === selectedDate
+  })
+
   const fallsOnDate = events.filter((event) => {
     if (event.type !== "FALL") return false
     const d = new Date(event.timestamp)
@@ -153,7 +178,6 @@ export default function Dashboard() {
               <StatCard title="Recorded Falls" value={fallsOnDate.toString()} color="text-red-600 dark:text-red-500" />
             </section>
 
-            {/* Global Selectors */}
             <section className="mt-6 flex flex-col sm:flex-row items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-lg border border-gray-200 dark:border-slate-800 gap-4">
               <div className="flex items-center gap-4 w-full sm:w-auto">
                 <h2 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">
@@ -199,7 +223,6 @@ export default function Dashboard() {
               </div>
             </section>
 
-            {/* Pass selectedDate to the historical logs/charts */}
             <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6 items-stretch">
               <div className="min-w-0"><AlertsTable selectedDate={selectedDate} /></div>
               <div className="min-w-0"><LiveChart selectedDate={selectedDate} /></div>
