@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+/* FIX: Tailwind v4's `dark:` variant compiles against the OS-level
+   `prefers-color-scheme` media query by default, ignoring any class
+   toggled on <html> via JavaScript - which is exactly what
+   ThemeToggle.tsx and ClientProviders.tsx do (add/remove a "dark"
+   class based on localStorage). Without this directive, every
+   `dark:` utility in the app (Sidebar, etc.) only ever followed the
+   browser/OS theme setting, never the toggle button - clicking it
+   changed the class and localStorage correctly, but no compiled CSS
+   was listening for that class at all. This opts into Tailwind v4's
+   documented class-based dark mode strategy. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* FIX: this media-query block set CSS variables based on OS
+   preference, completely independent of the "dark" class the
+   toggle button controls. Since the app's actual dark styling is
+   done via Tailwind's `dark:bg-...`/`dark:text-...` utilities
+   (see Sidebar.tsx, layout.tsx body classes), not these CSS
+   variables, this block was redundant with - and could visually
+   conflict with - the real class-based theme. Removed in favor of
+   the single source of truth: the "dark" class handled by
+   ClientProviders.tsx / ThemeToggle.tsx. */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
