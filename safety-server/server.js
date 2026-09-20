@@ -173,8 +173,8 @@ app.get('/api/telemetry/history', async (req, res) => {
   }
 });
 
-// EMERGENCY: Fall / Impact alerts
-app.post('/api/alert', async (req, res) => {
+// EMERGENCY: Fall / Impact alerts sent from Raspberry Pi
+app.post('/api/events', async (req, res) => {
   console.log("📥 Incoming Alert Payload:", req.body);
 
   const body = req.body || {};
@@ -183,15 +183,15 @@ app.post('/api/alert', async (req, res) => {
   const nestedEvent = typeof body.event === "object" ? body.event : undefined;
 
   const type = (
-    nestedEvent?.type ||
-    (typeof body.event === "string" ? body.event : undefined) ||
+    nestedEvent?.type ??
+    (typeof body.event === "string" ? body.event : undefined) ??
     "ALERT"
   ).toUpperCase();
 
   const severity = (
-    nestedEvent?.severity ||
-    body.severity ||
-    (type === "FALL" ? "CRITICAL" : type === "IMPACT" ? "HIGH" : "WARNING")
+    nestedEvent?.severity ??
+    body.severity ??
+    (type === "FALL DETECTED" ? "CRITICAL" : type === "IMPACT DETECTED" ? "HIGH" : "WARNING")
   ).toUpperCase();
 
   try {
@@ -199,8 +199,8 @@ app.post('/api/alert', async (req, res) => {
       workerId: workerId || "UNKNOWN_WORKER",
       type,
       severity,
-      impact_g: nestedEvent?.impact_g ?? null,
-      confidence: nestedEvent?.confidence ?? null,
+      impact_g: nestedEvent?.impact_g ?? body.impact_g ?? null,
+      confidence: nestedEvent?.confidence ?? body.confidence ?? null,
       snapshot: nestedEvent?.snapshot ?? null,
       x: x ?? 50.0,
       y: y ?? 50.0,
@@ -217,6 +217,16 @@ app.post('/api/alert', async (req, res) => {
     console.error("❌ Failed to save alert:", err);
     res.status(500).json({ success: false });
   }
+});
+
+// VIBRATION MOTOR: Dashboard -> Pi Command
+app.post('/api/vibration', (req, res) => {
+  const { command, workerId } = req.body;
+  console.log(`📳 Sending vibration command [${command}] to ${workerId}`);
+  
+  // Broadcast command to connected Pi clients
+  io.emit('vibration_command', { command, workerId });
+  res.status(200).json({ success: true });
 });
 
 // ==========================================

@@ -33,7 +33,7 @@ const TelemetrySchema = new mongoose.Schema({
 
   safety: {
     systemStatus: { type: String, default: "NORMAL" },
-    vibrationMotor: { type: Boolean, default: null },
+    vibrationMotor: { type: String, default: null },
   },
 
   camera: {

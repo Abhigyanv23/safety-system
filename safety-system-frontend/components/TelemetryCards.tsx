@@ -43,9 +43,9 @@ export default function TelemetryCards({ workerId = "W01" }: { workerId?: string
             humidity: mockHum 
           },
           safety: { 
-            systemStatus: isW02 ? "SAFE" : "ALERT" 
-          },
-          vibration: { status: "OFF" },
+            systemStatus: isW02 ? "SAFE" : "ALERT",
+            vibrationMotor: "OFF"
+          }
         });
       }
     }, 2000);
@@ -55,8 +55,7 @@ export default function TelemetryCards({ workerId = "W01" }: { workerId?: string
   const data = telemetry || {
     health: { heartRate: "--", spo2: "--" },
     environment: { temperature: "--", humidity: "--" },
-    safety: { systemStatus: "WAITING" },
-    vibration: { status: "OFF" },
+    safety: { systemStatus: "WAITING", vibrationMotor: "OFF" }
   };
 
   return (
@@ -95,16 +94,18 @@ export default function TelemetryCards({ workerId = "W01" }: { workerId?: string
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-5 shadow-lg">
             <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider block mb-2">System Status</span>
-            <span className={`text-3xl font-bold ${data.safety.systemStatus === "SAFE" ? "text-emerald-500" : "text-red-600 dark:text-red-500"}`}>
-              {data.safety.systemStatus}
+            <span className={`text-3xl font-bold ${data.safety?.systemStatus === "SAFE" ? "text-emerald-500" : "text-red-600 dark:text-red-500"}`}>
+              {data.safety?.systemStatus || "WAITING"}
             </span>
           </div>
           <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between">
             <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider block mb-2">Vibration Motor</span>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-3xl font-bold text-gray-800 dark:text-slate-300">{data.vibration.status}</span>
+              <span className="text-3xl font-bold text-gray-800 dark:text-slate-300">
+                {data.safety?.vibrationMotor || "OFF"}
+              </span>
               <button
-                onClick={() => triggerVibration(data.vibration.status === "ON" ? "OFF" : "ON")}
+                onClick={() => triggerVibration(data.safety?.vibrationMotor === "ON" ? "OFF" : "ON")}
                 disabled={workerId !== "W01"}
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition disabled:opacity-50"
               >
