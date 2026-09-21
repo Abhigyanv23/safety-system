@@ -4,17 +4,32 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
 const Alert = require('./models/Alert');
 const Telemetry = require('./models/Telemetry');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+
+// Increase JSON payload limit to handle large Base64 image strings coming from the Pi
+app.use(express.json({ limit: '10mb' }));
+
+// ==========================================
+// 1. SNAPSHOT STORAGE SETUP
+// ==========================================
+const snapshotsDir = path.join(__dirname, 'public', 'snapshots');
+if (!fs.existsSync(snapshotsDir)) {
+    fs.mkdirSync(snapshotsDir, { recursive: true });
+}
+
+// Expose the snapshots folder so Next.js can load the URLs
+app.use('/snapshots', express.static(snapshotsDir));
 
 const server = http.createServer(app);
 
 // ==========================================
-// 1. DATABASE CONNECTION
+// 2. DATABASE CONNECTION
 // ==========================================
 const MONGO_URI = "mongodb://localhost:27017/safety_db";
 
@@ -23,7 +38,7 @@ mongoose.connect(MONGO_URI)
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
 // ==========================================
-// 2. SOCKET.IO SETUP
+// 3. SOCKET.IO SETUP & ZONE HELPER
 // ==========================================
 const io = new Server(server, {
   cors: {
@@ -34,13 +49,25 @@ const io = new Server(server, {
 
 let lastKnownTelemetry = {};
 
+function getZone(x, y) {
+  if (x === null || x === undefined || y === null || y === undefined) return "UNKNOWN";
+  if (x < 50 && y < 50) return "Zone A";
+  if (x >= 50 && y < 50) return "Zone B";
+  if (x < 50 && y >= 50) return "Zone C";
+  return "Zone D";
+}
+
 function toWireAlert(doc) {
+  const x = doc.x ?? null;
+  const y = doc.y ?? null;
+  
   return {
     id: String(doc._id || doc.id),
     workerId: doc.workerId,
     timestamp: doc.timestamp,
-    x: doc.x ?? null,
-    y: doc.y ?? null,
+    zone: doc.zone || getZone(x, y),
+    x,
+    y,
     event: {
       type: doc.type,
       severity: doc.severity,
@@ -67,7 +94,7 @@ io.on('connection', async (socket) => {
 });
 
 // ==========================================
-// 3. API ENDPOINTS
+// 4. API ENDPOINTS
 // ==========================================
 
 // GET HISTORY: Fetch last 20 alerts from MongoDB
@@ -101,9 +128,14 @@ app.post('/api/telemetry', async (req, res) => {
     return res.status(400).json({ success: false, message: "workerId is required." });
   }
 
+  const x = body.x ?? null;
+  const y = body.y ?? null;
+  const zone = body.zone || getZone(x, y);
+
   const telemetry = {
     workerId,
     timestamp: body.timestamp || new Date().toISOString(),
+    zone,
 
     health: body.health || {
       heartRate: body.heartRate ?? null,
@@ -136,8 +168,8 @@ app.post('/api/telemetry', async (req, res) => {
       storageFreePercent: body.storageFreePercent ?? null,
     },
 
-    x: body.x ?? null,
-    y: body.y ?? null,
+    x,
+    y,
   };
 
   lastKnownTelemetry[workerId] = telemetry;
@@ -173,9 +205,9 @@ app.get('/api/telemetry/history', async (req, res) => {
   }
 });
 
-// EMERGENCY: Fall / Impact alerts sent from Raspberry Pi
+// EMERGENCY: Fall / Impact alerts sent from Raspberry Pi or Simulator
 app.post('/api/events', async (req, res) => {
-  console.log("📥 Incoming Alert Payload:", req.body);
+  console.log("📥 Incoming Alert Payload Received");
 
   const body = req.body || {};
   const { workerId, x, y } = body;
@@ -194,6 +226,35 @@ app.post('/api/events', async (req, res) => {
     (type === "FALL DETECTED" ? "CRITICAL" : type === "IMPACT DETECTED" ? "HIGH" : "WARNING")
   ).toUpperCase();
 
+  // --- SNAPSHOT FILTER ---
+  let finalSnapshot = nestedEvent?.snapshot ?? body.snapshot ?? null;
+
+  if (finalSnapshot && finalSnapshot.startsWith('data:image')) {
+    try {
+      // Strip the metadata prefix to get raw base64
+      const base64Data = finalSnapshot.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, 'base64');
+      
+      // Generate a unique filename using timestamp
+      const filename = `alert_${workerId || "UNKNOWN"}_${Date.now()}.jpg`;
+      const filepath = path.join(snapshotsDir, filename);
+      
+      // Save the image to your laptop's hard drive
+      fs.writeFileSync(filepath, buffer);
+      
+      // Replace the massive Base64 string with the local URL
+      finalSnapshot = `/snapshots/${filename}`;
+      console.log(`📸 Snapshot saved to server: ${filename}`);
+    } catch (error) {
+      console.error("❌ Failed to process snapshot:", error);
+    }
+  }
+  // -----------------------
+
+  const alertX = x ?? 50.0;
+  const alertY = y ?? 50.0;
+  const zone = body.zone || getZone(alertX, alertY);
+
   try {
     const newAlert = new Alert({
       workerId: workerId || "UNKNOWN_WORKER",
@@ -201,15 +262,16 @@ app.post('/api/events', async (req, res) => {
       severity,
       impact_g: nestedEvent?.impact_g ?? body.impact_g ?? null,
       confidence: nestedEvent?.confidence ?? body.confidence ?? null,
-      snapshot: nestedEvent?.snapshot ?? null,
-      x: x ?? 50.0,
-      y: y ?? 50.0,
+      snapshot: finalSnapshot, // Insert the URL instead of the Base64 string
+      zone,
+      x: alertX,
+      y: alertY,
       timestamp: new Date(),
     });
 
     await newAlert.save();
 
-    console.log(`🚨 ALERT SAVED: ${newAlert.workerId} (${newAlert.type}/${newAlert.severity}) at Zone (X:${newAlert.x}, Y:${newAlert.y})`);
+    console.log(`🚨 ALERT SAVED: ${newAlert.workerId} (${newAlert.type}/${newAlert.severity}) at ${newAlert.zone} (X:${newAlert.x}, Y:${newAlert.y})`);
 
     io.emit('critical_alert', toWireAlert(newAlert));
     res.status(200).json({ success: true, db_id: newAlert._id });
@@ -230,7 +292,7 @@ app.post('/api/vibration', (req, res) => {
 });
 
 // ==========================================
-// 4. SERVER START & NETWORK BINDING
+// 5. SERVER START & NETWORK BINDING
 // ==========================================
 
 const PORT = 5001;

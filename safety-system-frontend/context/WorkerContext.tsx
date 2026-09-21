@@ -97,14 +97,6 @@ export interface WorkerSystem {
 // Events
 // ------------------------------------------------------------
 
-// Incident lifecycle for an event, tracked client-side only (the
-// backend doesn't store or return this - it's purely a dashboard
-// workflow concept, same as `acknowledged` was before it).
-//   open         -> just arrived, nothing done yet
-//   acknowledged -> a supervisor has seen it (this is also what
-//                   silences the siren/popup - see acknowledgeAlert)
-//   dispatched   -> medical help has been sent
-//   resolved     -> fully closed out
 export type EventStage =
   | "open"
   | "acknowledged"
@@ -120,23 +112,8 @@ export interface SafetyEvent {
   impact_g: number | null
   confidence: number | null
   snapshot: string | null
-
-  // FIX: previously missing entirely, even though RawAlert already
-  // declared x/y and the backend's Alert model stores them. Without
-  // these fields, LiveChart.tsx's `event.x`/`event.y` checks always
-  // saw `undefined`, so "Incident Hotspots" was permanently empty
-  // regardless of what the backend actually sent.
   x: number | null
   y: number | null
-
-  // Frontend-only state.
-  // Replaces the previous plain `acknowledged: boolean` with a full
-  // stage so the UI can drive an Acknowledge -> Dispatch Medical
-  // Help -> Mark as Resolved workflow instead of a single on/off
-  // flag. Anywhere that used to check `!event.acknowledged` now
-  // checks `event.stage === "open"` instead - equivalent for the
-  // "does this still need attention" question, just with two more
-  // steps available after that.
   stage: EventStage
 }
 
@@ -146,43 +123,21 @@ export interface SafetyEvent {
 
 export interface Worker {
   id: string
-
-  // Kept for compatibility with the existing UI.
-  // Backend does not currently provide a worker name.
   name: string
-
   status: WorkerStatus
-
-  // Legacy compatibility.
-  // New Raspberry Pi telemetry does not contain battery.
   battery: number | null
-
-  // Legacy compatibility.
   heartRate: number | null
-
   active: boolean
-
-  // Site-map coordinates.
   x: number | null
   y: number | null
-
   health: WorkerHealth
   environment: WorkerEnvironment
   safety: WorkerSafety
   camera: WorkerCamera
   system: WorkerSystem
-
-  // Worker-specific event history.
   events: SafetyEvent[]
-
-  // Last telemetry timestamp.
   lastTelemetryAt: string | null
-
-  // True when telemetry has stopped arriving.
   telemetryStale: boolean
-
-  // True when a critical/unresolved event is currently controlling
-  // the worker's safety status.
   activeAlert: boolean
 }
 
@@ -193,35 +148,27 @@ export interface Worker {
 interface RawTelemetry {
   workerId?: string
   timestamp?: string
-
-  // New Raspberry Pi structure
   health?: {
     heartRate?: number | null
     spo2?: number | null
   }
-
   environment?: {
     temperature?: number | null
     humidity?: number | null
   }
-
   safety?: {
     systemStatus?: string | null
     vibrationMotor?: boolean | null
   }
-
   camera?: {
     status?: string | null
     lastSnapshot?: string | null
   }
-
   system?: {
     piOnline?: boolean
     sensors?: Partial<WorkerSensors>
     storageFreePercent?: number | null
   }
-
-  // Old backend compatibility
   heartRate?: number | null
   battery?: number | null
   x?: number | null
@@ -231,11 +178,8 @@ interface RawTelemetry {
 interface RawAlert {
   _id?: string
   id?: string | number
-
   workerId?: string
   timestamp?: string
-
-  // New structure
   event?: {
     type?: string
     severity?: string
@@ -243,14 +187,11 @@ interface RawAlert {
     confidence?: number | null
     snapshot?: string | null
   }
-
-  // Old backend structure
   eventType?: string
   severity?: string
   impact_g?: number | null
   confidence?: number | null
   snapshot?: string | null
-
   x?: number | null
   y?: number | null
 }
@@ -266,50 +207,23 @@ interface EventHistoryPayload {
 
 interface WorkerContextType {
   workers: Worker[]
-
-  // Connection
   connectionState: ConnectionState
   isSocketConnected: boolean
   isUsingMockData: boolean
-
-  // Global events
   events: SafetyEvent[]
   latestAlert: SafetyEvent | null
-
-  // Worker controls
-  updateWorkerStatus: (
-    id: string,
-    newStatus: WorkerStatus
-  ) => void
-
+  updateWorkerStatus: (id: string, newStatus: WorkerStatus) => void
   toggleWorker: (id: string) => void
-
-  acknowledgeAlert: (
-    eventId: string,
-    workerId?: string
-  ) => void
-
-  acknowledgeWorkerAlerts: (
-    workerId: string
-  ) => void
-
-  // Incident lifecycle - stages after acknowledgment.
+  acknowledgeAlert: (eventId: string, workerId?: string) => void
+  acknowledgeWorkerAlerts: (workerId: string) => void
   dispatchMedicalHelp: (eventId: string) => void
   resolveEvent: (eventId: string) => void
-
-  // Emergency
   emergencyActive: boolean
   triggerEmergency: () => void
   clearEmergency: () => void
   stopAlarm: () => void
-
-  // Utility
   getWorker: (workerId: string) => Worker | undefined
-
-  // Manual mock control
   refreshMockData: () => void
-
-  // Settings
   siteMapImage: string | null
   setSiteMapImage: (url: string | null) => void
   soundEnabled: boolean
@@ -318,9 +232,7 @@ interface WorkerContextType {
   setNotificationsEnabled: (value: boolean) => void
 }
 
-const WorkerContext = createContext<
-  WorkerContextType | undefined
->(undefined)
+const WorkerContext = createContext<WorkerContextType | undefined>(undefined)
 
 // ============================================================
 // CONFIGURATION
@@ -342,40 +254,32 @@ const TELEMETRY_STALE_AFTER_MS = 15_000
 const MOCK_TELEMETRY: RawTelemetry = {
   workerId: "W01",
   timestamp: new Date().toISOString(),
-
   health: {
     heartRate: 78,
     spo2: 98,
   },
-
   environment: {
     temperature: 29.8,
     humidity: 66,
   },
-
   safety: {
     systemStatus: "NORMAL",
     vibrationMotor: false,
   },
-
   camera: {
     status: "NOT CONNECTED",
     lastSnapshot: null,
   },
-
   system: {
     piOnline: true,
-
     sensors: {
       max30102: true,
       dht11: true,
       ov5647: false,
       mpu6050: true,
     },
-
     storageFreePercent: 72,
   },
-
   x: 25,
   y: 40,
 }
@@ -384,31 +288,23 @@ const MOCK_TELEMETRY: RawTelemetry = {
 // HELPERS
 // ============================================================
 
-function statusFromBackend(
-  status?: string | null
-): WorkerStatus {
+function statusFromBackend(status?: string | null): WorkerStatus {
   switch (String(status || "").toUpperCase()) {
     case "CRITICAL":
       return "critical"
-
     case "ALERT":
       return "alert"
-
     case "WARNING":
       return "warning"
-
     case "NORMAL":
     case "SAFE":
       return "safe"
-
     default:
       return "safe"
   }
 }
 
-export function resolveSnapshotUrl(
-  snapshot: string | null | undefined
-): string | null {
+export function resolveSnapshotUrl(snapshot: string | null | undefined): string | null {
   if (!snapshot) return null
 
   if (
@@ -426,10 +322,16 @@ export function resolveSnapshotUrl(
   return `${BACKEND_URL}/${snapshot}`
 }
 
-function normalizeAlert(
-  raw: RawAlert,
-  fallbackId?: string
-): SafetyEvent | null {
+const saveEventStage = (eventId: string, stage: EventStage) => {
+  if (typeof window === "undefined") return
+  try {
+    const stored = JSON.parse(localStorage.getItem("event_stages") || "{}")
+    stored[eventId] = stage
+    localStorage.setItem("event_stages", JSON.stringify(stored))
+  } catch (e) {}
+}
+
+function normalizeAlert(raw: RawAlert, fallbackId?: string): SafetyEvent | null {
   const workerId = raw.workerId
 
   if (!workerId) return null
@@ -492,31 +394,26 @@ function normalizeAlert(
   const x = typeof raw.x === "number" ? raw.x : null
   const y = typeof raw.y === "number" ? raw.y : null
 
+  let stage: EventStage = "open"
+  if (typeof window !== "undefined") {
+    try {
+      const stored = JSON.parse(localStorage.getItem("event_stages") || "{}")
+      if (stored[id]) stage = stored[id]
+    } catch (e) {}
+  }
+
   return {
     id,
     workerId,
     type,
     severity,
     timestamp,
-    impact_g:
-      typeof impact === "number"
-        ? impact
-        : null,
-
-    confidence:
-      typeof confidence === "number"
-        ? confidence
-        : null,
-
-    snapshot:
-      typeof snapshot === "string"
-        ? snapshot
-        : null,
-
+    impact_g: typeof impact === "number" ? impact : null,
+    confidence: typeof confidence === "number" ? confidence : null,
+    snapshot: typeof snapshot === "string" ? snapshot : null,
     x,
     y,
-
-    stage: "open" as const,
+    stage,
   }
 }
 
@@ -524,10 +421,7 @@ function normalizeAlert(
 // NORMALIZE TELEMETRY
 // ============================================================
 
-function normalizeTelemetry(
-  raw: RawTelemetry,
-  existing?: Worker
-): Worker {
+function normalizeTelemetry(raw: RawTelemetry, existing?: Worker): Worker {
   const workerId = raw.workerId || existing?.id || "W01"
 
   const health: WorkerHealth = {
@@ -536,7 +430,6 @@ function normalizeTelemetry(
       raw.heartRate ??
       existing?.health.heartRate ??
       null,
-
     spo2:
       raw.health?.spo2 ??
       existing?.health.spo2 ??
@@ -548,7 +441,6 @@ function normalizeTelemetry(
       raw.environment?.temperature ??
       existing?.environment.temperature ??
       null,
-
     humidity:
       raw.environment?.humidity ??
       existing?.environment.humidity ??
@@ -560,7 +452,6 @@ function normalizeTelemetry(
       raw.safety?.systemStatus != null
         ? statusFromBackend(raw.safety.systemStatus)
         : existing?.safety.systemStatus ?? "safe",
-
     vibrationMotor:
       raw.safety?.vibrationMotor ??
       existing?.safety.vibrationMotor ??
@@ -572,7 +463,6 @@ function normalizeTelemetry(
       raw.camera?.status ??
       existing?.camera.status ??
       "NOT CONNECTED",
-
     lastSnapshot:
       raw.camera?.lastSnapshot ??
       existing?.camera.lastSnapshot ??
@@ -584,17 +474,14 @@ function normalizeTelemetry(
       raw.system?.sensors?.max30102 ??
       existing?.system.sensors.max30102 ??
       false,
-
     dht11:
       raw.system?.sensors?.dht11 ??
       existing?.system.sensors.dht11 ??
       false,
-
     ov5647:
       raw.system?.sensors?.ov5647 ??
       existing?.system.sensors.ov5647 ??
       false,
-
     mpu6050:
       raw.system?.sensors?.mpu6050 ??
       existing?.system.sensors.mpu6050 ??
@@ -606,9 +493,7 @@ function normalizeTelemetry(
       raw.system?.piOnline ??
       existing?.system.piOnline ??
       false,
-
     sensors,
-
     storageFreePercent:
       raw.system?.storageFreePercent ??
       existing?.system.storageFreePercent ??
@@ -622,56 +507,22 @@ function normalizeTelemetry(
 
   return {
     id: workerId,
-
-    name:
-      existing?.name ||
-      workerId,
-
-    status:
-      existing?.activeAlert
-        ? "critical"
-        : safety.systemStatus,
-
-    battery:
-      raw.battery ??
-      existing?.battery ??
-      null,
-
-    heartRate:
-      health.heartRate,
-
-    active:
-      existing?.active ??
-      true,
-
-    x:
-      raw.x ??
-      existing?.x ??
-      null,
-
-    y:
-      raw.y ??
-      existing?.y ??
-      null,
-
+    name: existing?.name || workerId,
+    status: existing?.activeAlert ? "critical" : safety.systemStatus,
+    battery: raw.battery ?? existing?.battery ?? null,
+    heartRate: health.heartRate,
+    active: existing?.active ?? true,
+    x: raw.x ?? existing?.x ?? null,
+    y: raw.y ?? existing?.y ?? null,
     health,
     environment,
     safety,
     camera,
     system,
-
-    events:
-      existing?.events ??
-      [],
-
+    events: existing?.events ?? [],
     lastTelemetryAt,
-
-    telemetryStale:
-      false,
-
-    activeAlert:
-      existing?.activeAlert ??
-      false,
+    telemetryStale: false,
+    activeAlert: existing?.activeAlert ?? false,
   }
 }
 
@@ -680,9 +531,7 @@ function normalizeTelemetry(
 // ============================================================
 
 function createInitialWorker(): Worker {
-  return normalizeTelemetry(
-    MOCK_TELEMETRY
-  )
+  return normalizeTelemetry(MOCK_TELEMETRY)
 }
 
 // ============================================================
@@ -699,25 +548,15 @@ export function WorkerProvider({
   ])
 
   const [events, setEvents] = useState<SafetyEvent[]>([])
+  const [latestAlert, setLatestAlert] = useState<SafetyEvent | null>(null)
 
-  const [latestAlert, setLatestAlert] =
-    useState<SafetyEvent | null>(null)
+  const [connectionState, setConnectionState] = useState<ConnectionState>(
+    MOCK_MODE ? "OFFLINE" : "CONNECTING"
+  )
 
-  const [connectionState, setConnectionState] =
-    useState<ConnectionState>(
-      MOCK_MODE
-        ? "OFFLINE"
-        : "CONNECTING"
-    )
-
-  const [isSocketConnected, setIsSocketConnected] =
-    useState(false)
-
-  const [isUsingMockData, setIsUsingMockData] =
-    useState(MOCK_MODE)
-
-  const [emergencyActive, setEmergencyActive] =
-    useState(false)
+  const [isSocketConnected, setIsSocketConnected] = useState(false)
+  const [isUsingMockData, setIsUsingMockData] = useState(MOCK_MODE)
+  const [emergencyActive, setEmergencyActive] = useState(false)
 
   const [soundEnabled, setSoundEnabledState] = useState(true)
   const [notificationsEnabled, setNotificationsEnabledState] = useState(true)
@@ -729,9 +568,7 @@ export function WorkerProvider({
       setSoundEnabledState(savedSound === "true")
     }
 
-    const savedNotifications = localStorage.getItem(
-      "notificationsEnabled"
-    )
+    const savedNotifications = localStorage.getItem("notificationsEnabled")
     if (savedNotifications !== null) {
       setNotificationsEnabledState(savedNotifications === "true")
     }
@@ -766,10 +603,7 @@ export function WorkerProvider({
   }
 
   const socketRef = useRef<Socket | null>(null)
-
-  const mockIntervalRef =
-    useRef<ReturnType<typeof setInterval> | null>(null)
-
+  const mockIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const workersRef = useRef<Worker[]>(workers)
 
   useEffect(() => {
@@ -780,42 +614,26 @@ export function WorkerProvider({
   // WORKER UPDATE HELPER
   // ==========================================================
 
-  const updateWorkerFromTelemetry = (
-    telemetry: RawTelemetry
-  ) => {
+  const updateWorkerFromTelemetry = (telemetry: RawTelemetry) => {
     if (!telemetry.workerId) return
 
     setWorkers(prev => {
-      const existing =
-        prev.find(
-          worker =>
-            worker.id === telemetry.workerId
-        )
-
-      const normalized =
-        normalizeTelemetry(
-          telemetry,
-          existing
-        )
+      const existing = prev.find(worker => worker.id === telemetry.workerId)
+      const normalized = normalizeTelemetry(telemetry, existing)
 
       if (existing?.activeAlert) {
         normalized.status = "critical"
         normalized.activeAlert = true
       }
 
-      const exists = prev.some(
-        worker =>
-          worker.id === telemetry.workerId
-      )
+      const exists = prev.some(worker => worker.id === telemetry.workerId)
 
       if (!exists) {
         return [...prev, normalized]
       }
 
       return prev.map(worker =>
-        worker.id === telemetry.workerId
-          ? normalized
-          : worker
+        worker.id === telemetry.workerId ? normalized : worker
       )
     })
   }
@@ -829,80 +647,54 @@ export function WorkerProvider({
 
     if (!alert) return
 
+    if (alert.x === null || alert.y === null) {
+      const currentWorker = workersRef.current.find(w => w.id === alert.workerId)
+      if (currentWorker) {
+        alert.x = alert.x ?? currentWorker.x
+        alert.y = alert.y ?? currentWorker.y
+      }
+    }
+
     setLatestAlert(alert)
 
     setEvents(prev => {
-      const alreadyExists = prev.some(
-        event => event.id === alert.id
-      )
+      const alreadyExists = prev.some(event => event.id === alert.id)
+      if (alreadyExists) return prev
 
-      if (alreadyExists) {
-        return prev
-      }
-
-      return [
-        alert,
-        ...prev,
-      ].sort(
-        (a, b) =>
-          new Date(b.timestamp).getTime() -
-          new Date(a.timestamp).getTime()
+      return [alert, ...prev].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       )
     })
 
-    setWorkers(prev => {
+   setWorkers(prev => {
       return prev.map(worker => {
-        if (worker.id !== alert.workerId) {
-          return worker
-        }
+        if (worker.id !== alert.workerId) return worker
 
-        const alreadyExists =
-          worker.events.some(
-            event =>
-              event.id === alert.id
-          )
-
-        const workerEvents =
-          alreadyExists
-            ? worker.events
-            : [
-                alert,
-                ...worker.events,
-              ]
+        const alreadyExists = worker.events.some(event => event.id === alert.id)
+        const workerEvents = alreadyExists ? worker.events : [alert, ...worker.events]
 
         return {
           ...worker,
-
+          // Copy the emergency snapshot into the live camera panel
+          camera: alert.snapshot 
+            ? { ...worker.camera, lastSnapshot: alert.snapshot } 
+            : worker.camera,
+            
           status:
             alert.severity === "CRITICAL"
               ? "critical"
               : alert.severity === "HIGH"
                 ? "warning"
-                : statusFromBackend(
-                    alert.severity
-                  ),
-
-          activeAlert:
-            alert.severity === "CRITICAL" ||
-            alert.type === "FALL",
-
+                : statusFromBackend(alert.severity),
+          activeAlert: alert.severity === "CRITICAL" || alert.type.includes("FALL"),
           events: workerEvents.sort(
-            (a, b) =>
-              new Date(
-                b.timestamp
-              ).getTime() -
-              new Date(
-                a.timestamp
-              ).getTime()
+            (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           ),
         }
       })
     })
 
-    if (
-      alert.severity === "CRITICAL" ||
-      alert.type === "FALL"
-    ) {
+    if (alert.severity === "CRITICAL" || alert.type.includes("FALL")) {
       setEmergencyActive(true)
     }
   }
@@ -918,22 +710,14 @@ export function WorkerProvider({
       return
     }
 
-    const socket = io(
-      BACKEND_URL,
-      {
-        autoConnect: true,
-
-        transports: [
-          "websocket",
-          "polling",
-        ],
-
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-      }
-    )
+    const socket = io(BACKEND_URL, {
+      autoConnect: true,
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    })
 
     socketRef.current = socket
 
@@ -941,192 +725,107 @@ export function WorkerProvider({
 
     socket.on("connect", () => {
       if (!mounted) return
-
-      console.log(
-        "🟢 Connected to Safety Backend:",
-        socket.id
-      )
-
+      console.log("🟢 Connected to Safety Backend:", socket.id)
       setConnectionState("ONLINE")
       setIsSocketConnected(true)
-
       setIsUsingMockData(false)
     })
 
     socket.on("disconnect", reason => {
       if (!mounted) return
-
-      console.log(
-        "🔴 Safety Backend disconnected:",
-        reason
-      )
-
+      console.log("🔴 Safety Backend disconnected:", reason)
       setConnectionState("OFFLINE")
       setIsSocketConnected(false)
-
-      if (MOCK_MODE) {
-        setIsUsingMockData(true)
-      }
+      if (MOCK_MODE) setIsUsingMockData(true)
     })
 
     socket.on("connect_error", error => {
       if (!mounted) return
-
-      console.warn(
-        "⚠️ Safety backend connection error:",
-        error.message
-      )
-
+      console.warn("⚠️ Safety backend connection error:", error.message)
       setConnectionState("OFFLINE")
       setIsSocketConnected(false)
-
-      if (MOCK_MODE) {
-        setIsUsingMockData(true)
-      }
+      if (MOCK_MODE) setIsUsingMockData(true)
     })
 
-    socket.on(
-      "live_telemetry",
-      (data: RawTelemetry) => {
-        if (!mounted) return
+    socket.on("live_telemetry", (data: RawTelemetry) => {
+      if (!mounted) return
+      updateWorkerFromTelemetry(data)
+    })
 
-        updateWorkerFromTelemetry(data)
-      }
-    )
+    socket.on("critical_alert", (data: RawAlert) => {
+      if (!mounted) return
+      console.log("🚨 Critical alert received:", data)
+      addAlert(data)
+    })
 
-    socket.on(
-      "critical_alert",
-      (data: RawAlert) => {
-        if (!mounted) return
+    socket.on("event_history", (data: EventHistoryPayload | RawAlert[]) => {
+      if (!mounted) return
 
-        console.log(
-          "🚨 Critical alert received:",
-          data
-        )
+      const rawEvents = Array.isArray(data) ? data : data.events || []
 
-        addAlert(data)
-      }
-    )
-
-    socket.on(
-      "event_history",
-      (
-        data:
-          | EventHistoryPayload
-          | RawAlert[]
-      ) => {
-        if (!mounted) return
-
-        const rawEvents = Array.isArray(data)
-          ? data
-          : data.events || []
-
-        const normalized =
-          rawEvents
-            .map((event, index) =>
-              normalizeAlert(
-                event,
-                `history-${index}`
-              )
-            )
-            .filter(
-              (
-                event
-              ): event is SafetyEvent =>
-                Boolean(event)
-            )
-
-        setEvents(
-          normalized.sort(
-            (a, b) =>
-              new Date(
-                b.timestamp
-              ).getTime() -
-              new Date(
-                a.timestamp
-              ).getTime()
-          )
-        )
-
-        setWorkers(prev => {
-          return prev.map(worker => {
-            const workerEvents =
-              normalized.filter(
-                event =>
-                  event.workerId ===
-                  worker.id
-              )
-
-            if (
-              workerEvents.length === 0
-            ) {
-              return worker
+      const normalized = rawEvents
+        .map((event, index) => {
+          const norm = normalizeAlert(event, `history-${index}`)
+          if (norm && (norm.x === null || norm.y === null)) {
+            const currentWorker = workersRef.current.find(w => w.id === norm.workerId)
+            if (currentWorker) {
+              norm.x = norm.x ?? currentWorker.x
+              norm.y = norm.y ?? currentWorker.y
             }
-
-            const hasCritical =
-              workerEvents.some(
-                event =>
-                  event.stage === "open" &&
-                  (
-                    event.type === "FALL" ||
-                    event.severity ===
-                      "CRITICAL"
-                  )
-              )
-
-            return {
-              ...worker,
-
-              events:
-                workerEvents,
-
-              activeAlert:
-                hasCritical,
-
-              status:
-                hasCritical
-                  ? "critical"
-                  : worker.status,
-            }
-          })
+          }
+          return norm
         })
-      }
-    )
+        .filter((event): event is SafetyEvent => Boolean(event))
 
-    socket.on(
-      "database_cleared",
-      () => {
-        if (!mounted) return
-
-        setEvents([])
-
-        setLatestAlert(null)
-
-        setWorkers(prev =>
-          prev.map(worker => ({
-            ...worker,
-
-            events: [],
-
-            activeAlert: false,
-
-            status:
-              worker.safety
-                .systemStatus,
-          }))
+      setEvents(
+        normalized.sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         )
+      )
 
-        setEmergencyActive(false)
-      }
-    )
+      setWorkers(prev => {
+        return prev.map(worker => {
+          const workerEvents = normalized.filter(event => event.workerId === worker.id)
+
+          if (workerEvents.length === 0) {
+            return worker
+          }
+
+          const hasCritical = workerEvents.some(
+            event =>
+              event.stage === "open" &&
+              (event.type.includes("FALL") || event.severity === "CRITICAL")
+          )
+
+          return {
+            ...worker,
+            events: workerEvents,
+            activeAlert: hasCritical,
+            status: hasCritical ? "critical" : worker.status,
+          }
+        })
+      })
+    })
+
+    socket.on("database_cleared", () => {
+      if (!mounted) return
+      setEvents([])
+      setLatestAlert(null)
+      setWorkers(prev =>
+        prev.map(worker => ({
+          ...worker,
+          events: [],
+          activeAlert: false,
+          status: worker.safety.systemStatus,
+        }))
+      )
+      setEmergencyActive(false)
+    })
 
     return () => {
       mounted = false
-
       socket.removeAllListeners()
-
       socket.disconnect()
-
       socketRef.current = null
     }
   }, [])
@@ -1142,116 +841,51 @@ export function WorkerProvider({
 
     if (isSocketConnected) {
       if (mockIntervalRef.current) {
-        clearInterval(
-          mockIntervalRef.current
-        )
-
+        clearInterval(mockIntervalRef.current)
         mockIntervalRef.current = null
       }
-
       return
     }
 
     setIsUsingMockData(true)
 
-    const generateMockTelemetry =
-      () => {
-        const current =
-          workersRef.current.find(
-            worker =>
-              worker.id === "W01"
-          )
+    const generateMockTelemetry = () => {
+      const current = workersRef.current.find(worker => worker.id === "W01")
+      const previousHR = current?.health.heartRate ?? 78
 
-        const previousHR =
-          current?.health.heartRate ??
-          78
+      const heartRate = Math.max(
+        60,
+        Math.min(150, previousHR + Math.floor(Math.random() * 7) - 3)
+      )
 
-        const heartRate = Math.max(
-          60,
-          Math.min(
-            150,
-            previousHR +
-              Math.floor(
-                Math.random() * 7
-              ) -
-              3
-          )
-        )
+      const temperature = 28 + Math.random() * 4
+      const humidity = 60 + Math.random() * 10
+      const x = Math.max(0, Math.min(100, (current?.x ?? 25) + (Math.random() * 4 - 2)))
+      const y = Math.max(0, Math.min(100, (current?.y ?? 40) + (Math.random() * 4 - 2)))
 
-        const temperature =
-          28 +
-          Math.random() * 4
-
-        const humidity =
-          60 +
-          Math.random() * 10
-
-        const x = Math.max(
-          0,
-          Math.min(
-            100,
-            (current?.x ?? 25) +
-              (Math.random() * 4 - 2)
-          )
-        )
-
-        const y = Math.max(
-          0,
-          Math.min(
-            100,
-            (current?.y ?? 40) +
-              (Math.random() * 4 - 2)
-          )
-        )
-
-        updateWorkerFromTelemetry({
-          ...MOCK_TELEMETRY,
-
-          timestamp:
-            new Date().toISOString(),
-
-          health: {
-            heartRate,
-            spo2:
-              97 +
-              Math.floor(
-                Math.random() * 3
-              ),
-          },
-
-          environment: {
-            temperature:
-              Number(
-                temperature.toFixed(1)
-              ),
-
-            humidity:
-              Number(
-                humidity.toFixed(1)
-              ),
-          },
-
-          x,
-          y,
-        })
-      }
+      updateWorkerFromTelemetry({
+        ...MOCK_TELEMETRY,
+        timestamp: new Date().toISOString(),
+        health: {
+          heartRate,
+          spo2: 97 + Math.floor(Math.random() * 3),
+        },
+        environment: {
+          temperature: Number(temperature.toFixed(1)),
+          humidity: Number(humidity.toFixed(1)),
+        },
+        x,
+        y,
+      })
+    }
 
     generateMockTelemetry()
 
-    mockIntervalRef.current =
-      setInterval(
-        generateMockTelemetry,
-        5000
-      )
+    mockIntervalRef.current = setInterval(generateMockTelemetry, 5000)
 
     return () => {
-      if (
-        mockIntervalRef.current
-      ) {
-        clearInterval(
-          mockIntervalRef.current
-        )
-
+      if (mockIntervalRef.current) {
+        clearInterval(mockIntervalRef.current)
         mockIntervalRef.current = null
       }
     }
@@ -1262,58 +896,42 @@ export function WorkerProvider({
   // ==========================================================
 
   useEffect(() => {
-    const checkStaleTelemetry =
-      () => {
-        const now = Date.now()
+    const checkStaleTelemetry = () => {
+      const now = Date.now()
 
-        setWorkers(prev =>
-          prev.map(worker => {
-            if (
-              !worker.lastTelemetryAt
-            ) {
-              return {
-                ...worker,
-                telemetryStale: true,
-              }
-            }
-
-            const last =
-              new Date(
-                worker.lastTelemetryAt
-              ).getTime()
-
-            const stale =
-              now - last >
-              TELEMETRY_STALE_AFTER_MS
-
+      setWorkers(prev =>
+        prev.map(worker => {
+          if (!worker.lastTelemetryAt) {
             return {
               ...worker,
-              telemetryStale: stale,
+              telemetryStale: true,
             }
-          })
-        )
-      }
+          }
+
+          const last = new Date(worker.lastTelemetryAt).getTime()
+          const stale = now - last > TELEMETRY_STALE_AFTER_MS
+
+          return {
+            ...worker,
+            telemetryStale: stale,
+          }
+        })
+      )
+    }
 
     checkStaleTelemetry()
 
-    const interval =
-      setInterval(
-        checkStaleTelemetry,
-        5000
-      )
+    const interval = setInterval(checkStaleTelemetry, 5000)
 
-    return () =>
-      clearInterval(interval)
+    return () => clearInterval(interval)
   }, [])
 
   // ==========================================================
   // ACKNOWLEDGE SINGLE ALERT
   // ==========================================================
 
-  const acknowledgeAlert = (
-    eventId: string,
-    workerId?: string
-  ) => {
+  const acknowledgeAlert = (eventId: string, workerId?: string) => {
+    saveEventStage(eventId, "acknowledged")
     setEvents(prev =>
       prev.map(event =>
         event.id === eventId
@@ -1327,47 +945,25 @@ export function WorkerProvider({
 
     setWorkers(prev =>
       prev.map(worker => {
-        if (
-          workerId &&
-          worker.id !== workerId
-        ) {
-          return worker
-        }
+        if (workerId && worker.id !== workerId) return worker
 
-        const updatedEvents =
-          worker.events.map(event =>
-            event.id === eventId
-              ? {
-                  ...event,
-                  stage: "acknowledged" as const,
-                }
-              : event
-          )
+        const updatedEvents = worker.events.map(event =>
+          event.id === eventId
+            ? { ...event, stage: "acknowledged" as const }
+            : event
+        )
 
-        const unresolvedCritical =
-          updatedEvents.some(
-            event =>
-              event.stage === "open" &&
-              (
-                event.type === "FALL" ||
-                event.severity ===
-                  "CRITICAL"
-              )
-          )
+        const unresolvedCritical = updatedEvents.some(
+          event =>
+            event.stage === "open" &&
+            (event.type.includes("FALL") || event.severity === "CRITICAL")
+        )
 
         return {
           ...worker,
-
           events: updatedEvents,
-
-          activeAlert:
-            unresolvedCritical,
-
-          status:
-            unresolvedCritical
-              ? "critical"
-              : worker.safety
-                  .systemStatus,
+          activeAlert: unresolvedCritical,
+          status: unresolvedCritical ? "critical" : worker.safety.systemStatus,
         }
       })
     )
@@ -1378,11 +974,10 @@ export function WorkerProvider({
   // ==========================================================
 
   const dispatchMedicalHelp = (eventId: string) => {
+    saveEventStage(eventId, "dispatched")
     setEvents(prev =>
       prev.map(event =>
-        event.id === eventId
-          ? { ...event, stage: "dispatched" as const }
-          : event
+        event.id === eventId ? { ...event, stage: "dispatched" as const } : event
       )
     )
 
@@ -1390,20 +985,17 @@ export function WorkerProvider({
       prev.map(worker => ({
         ...worker,
         events: worker.events.map(event =>
-          event.id === eventId
-            ? { ...event, stage: "dispatched" as const }
-            : event
+          event.id === eventId ? { ...event, stage: "dispatched" as const } : event
         ),
       }))
     )
   }
 
   const resolveEvent = (eventId: string) => {
+    saveEventStage(eventId, "resolved")
     setEvents(prev =>
       prev.map(event =>
-        event.id === eventId
-          ? { ...event, stage: "resolved" as const }
-          : event
+        event.id === eventId ? { ...event, stage: "resolved" as const } : event
       )
     )
 
@@ -1411,9 +1003,7 @@ export function WorkerProvider({
       prev.map(worker => ({
         ...worker,
         events: worker.events.map(event =>
-          event.id === eventId
-            ? { ...event, stage: "resolved" as const }
-            : event
+          event.id === eventId ? { ...event, stage: "resolved" as const } : event
         ),
       }))
     )
@@ -1423,109 +1013,62 @@ export function WorkerProvider({
   // ACKNOWLEDGE ALL ALERTS FOR WORKER
   // ==========================================================
 
-  const acknowledgeWorkerAlerts = (
-    workerId: string
-  ) => {
+  const acknowledgeWorkerAlerts = (workerId: string) => {
     setEvents(prev =>
-      prev.map(event =>
-        event.workerId === workerId
-          ? {
-              ...event,
-              stage: "acknowledged" as const,
-            }
-          : event
-      )
+      prev.map(event => {
+        if (event.workerId === workerId) {
+          saveEventStage(event.id, "acknowledged")
+          return { ...event, stage: "acknowledged" as const }
+        }
+        return event
+      })
     )
 
     setWorkers(prev =>
       prev.map(worker => {
-        if (
-          worker.id !== workerId
-        ) {
-          return worker
-        }
-
-        const updatedEvents =
-          worker.events.map(event => ({
-            ...event,
-            stage: "acknowledged" as const,
-          }))
-
+        if (worker.id !== workerId) return worker
+        const updatedEvents = worker.events.map(event => ({ ...event, stage: "acknowledged" as const }))
         return {
           ...worker,
-
           events: updatedEvents,
-
           activeAlert: false,
-
-          status:
-            worker.safety.systemStatus,
+          status: worker.safety.systemStatus,
         }
       })
     )
 
-    setEmergencyActive(prev => {
-      const remaining =
-        workers.some(
-          worker =>
-            worker.id !== workerId &&
-            worker.activeAlert &&
-            worker.active
-        )
-
-      return remaining || false
-    })
+    setEmergencyActive(prev =>
+      workers.some(worker => worker.id !== workerId && worker.activeAlert && worker.active)
+    )
   }
 
   // ==========================================================
   // MANUAL WORKER STATUS UPDATE
   // ==========================================================
 
-  const updateWorkerStatus = (
-    id: string,
-    newStatus: WorkerStatus
-  ) => {
+  const updateWorkerStatus = (id: string, newStatus: WorkerStatus) => {
     setWorkers((prev) =>
       prev.map((worker) => {
-        if (worker.id !== id) {
-          return worker
-        }
+        if (worker.id !== id) return worker
 
-        const clearingCritical =
-          newStatus === "safe"
+        const clearingCritical = newStatus === "safe"
 
         return {
           ...worker,
-
           status: newStatus,
-
-          activeAlert:
-            clearingCritical
-              ? false
-              : worker.activeAlert,
-
-          events:
-            clearingCritical
-              ? worker.events.map((event) => ({
-                  ...event,
-                  acknowledged: true,
-                }))
-              : worker.events,
+          activeAlert: clearingCritical ? false : worker.activeAlert,
+          events: clearingCritical
+            ? worker.events.map((event) => ({ ...event, stage: "acknowledged" as const }))
+            : worker.events,
         }
       })
     )
 
     if (newStatus === "safe") {
       setEmergencyActive((current) => {
-        const anotherCriticalWorker =
-          workers.some(
-            (worker) =>
-              worker.id !== id &&
-              worker.activeAlert &&
-              worker.active
-          )
-
-        return anotherCriticalWorker
+        return workers.some(
+          (worker) => worker.id !== id && worker.activeAlert && worker.active
+        )
       })
     }
 
@@ -1538,18 +1081,10 @@ export function WorkerProvider({
   // TOGGLE WORKER
   // ==========================================================
 
-  const toggleWorker = (
-    id: string
-  ) => {
+  const toggleWorker = (id: string) => {
     setWorkers(prev =>
       prev.map(worker =>
-        worker.id === id
-          ? {
-              ...worker,
-              active:
-                !worker.active,
-            }
-          : worker
+        worker.id === id ? { ...worker, active: !worker.active } : worker
       )
     )
   }
@@ -1568,7 +1103,6 @@ export function WorkerProvider({
         acknowledgeWorkerAlerts(worker.id)
       }
     })
-
     setEmergencyActive(false)
   }
 
@@ -1582,14 +1116,9 @@ export function WorkerProvider({
         acknowledgeWorkerAlerts(worker.id)
       }
     })
-
     setEmergencyActive(false)
 
-    const siren =
-      document.getElementById(
-        "emergency-siren"
-      ) as HTMLAudioElement | null
-
+    const siren = document.getElementById("emergency-siren") as HTMLAudioElement | null
     if (siren) {
       siren.pause()
       siren.currentTime = 0
@@ -1600,13 +1129,8 @@ export function WorkerProvider({
   // GET WORKER
   // ==========================================================
 
-  const getWorker = (
-    workerId: string
-  ) => {
-    return workers.find(
-      worker =>
-        worker.id === workerId
-    )
+  const getWorker = (workerId: string) => {
+    return workers.find(worker => worker.id === workerId)
   }
 
   // ==========================================================
@@ -1614,17 +1138,11 @@ export function WorkerProvider({
   // ==========================================================
 
   const refreshMockData = () => {
-    if (
-      !MOCK_MODE ||
-      isSocketConnected
-    ) {
-      return
-    }
+    if (!MOCK_MODE || isSocketConnected) return
 
     updateWorkerFromTelemetry({
       ...MOCK_TELEMETRY,
-      timestamp:
-        new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     })
   }
 
@@ -1633,12 +1151,9 @@ export function WorkerProvider({
   // ==========================================================
 
   useEffect(() => {
-    const hasActiveCritical =
-      workers.some(
-        worker =>
-          worker.active &&
-          worker.activeAlert
-      )
+    const hasActiveCritical = workers.some(
+      worker => worker.active && worker.activeAlert
+    )
 
     if (hasActiveCritical) {
       setEmergencyActive(true)
@@ -1649,92 +1164,60 @@ export function WorkerProvider({
   // SORT EVENTS
   // ==========================================================
 
-  const sortedEvents =
-    useMemo(() => {
-      return [...events].sort(
-        (a, b) =>
-          new Date(
-            b.timestamp
-          ).getTime() -
-          new Date(
-            a.timestamp
-          ).getTime()
-      )
-    }, [events])
+  const sortedEvents = useMemo(() => {
+    return [...events].sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+  }, [events])
 
   // ==========================================================
   // CONTEXT VALUE
   // ==========================================================
 
-  const contextValue =
-    useMemo<WorkerContextType>(
-      () => ({
-        workers,
-
-        connectionState,
-
-        isSocketConnected,
-
-        isUsingMockData,
-
-        events: sortedEvents,
-
-        latestAlert,
-
-        updateWorkerStatus,
-
-        toggleWorker,
-
-        acknowledgeAlert,
-
-        acknowledgeWorkerAlerts,
-
-        dispatchMedicalHelp,
-
-        resolveEvent,
-
-        emergencyActive,
-
-        triggerEmergency,
-
-        clearEmergency,
-
-        stopAlarm,
-
-        getWorker,
-
-        refreshMockData,
-
-        siteMapImage,
-
-        setSiteMapImage,
-
-        soundEnabled,
-
-        setSoundEnabled,
-
-        notificationsEnabled,
-
-        setNotificationsEnabled,
-      }),
-      [
-        workers,
-        connectionState,
-        isSocketConnected,
-        isUsingMockData,
-        sortedEvents,
-        latestAlert,
-        emergencyActive,
-        siteMapImage,
-        soundEnabled,
-        notificationsEnabled,
-      ]
-    )
+  const contextValue = useMemo<WorkerContextType>(
+    () => ({
+      workers,
+      connectionState,
+      isSocketConnected,
+      isUsingMockData,
+      events: sortedEvents,
+      latestAlert,
+      updateWorkerStatus,
+      toggleWorker,
+      acknowledgeAlert,
+      acknowledgeWorkerAlerts,
+      dispatchMedicalHelp,
+      resolveEvent,
+      emergencyActive,
+      triggerEmergency,
+      clearEmergency,
+      stopAlarm,
+      getWorker,
+      refreshMockData,
+      siteMapImage,
+      setSiteMapImage,
+      soundEnabled,
+      setSoundEnabled,
+      notificationsEnabled,
+      setNotificationsEnabled,
+    }),
+    [
+      workers,
+      connectionState,
+      isSocketConnected,
+      isUsingMockData,
+      sortedEvents,
+      latestAlert,
+      emergencyActive,
+      siteMapImage,
+      soundEnabled,
+      notificationsEnabled,
+    ]
+  )
 
   return (
-    <WorkerContext.Provider
-      value={contextValue}
-    >
+    <WorkerContext.Provider value={contextValue}>
       {children}
     </WorkerContext.Provider>
   )
@@ -1745,13 +1228,10 @@ export function WorkerProvider({
 // ============================================================
 
 export function useWorkers() {
-  const context =
-    useContext(WorkerContext)
+  const context = useContext(WorkerContext)
 
   if (!context) {
-    throw new Error(
-      "useWorkers must be used inside WorkerProvider"
-    )
+    throw new Error("useWorkers must be used inside WorkerProvider")
   }
 
   return context

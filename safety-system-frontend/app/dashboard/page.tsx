@@ -15,6 +15,7 @@ import ActivityFeed from "../../components/ActivityFeed"
 import SupervisorPanel from "../../components/SupervisorPanel"
 import AlertPopup from "../../components/AlertPopup"
 import WorkerModal from "../../components/WorkerModal"
+import IncidentAlerts from "../../components/IncidentAlerts"
 
 import TelemetryCards from "../../components/TelemetryCards"
 import SensorStatusPanel from "../../components/SensorStatusPanel"
@@ -34,48 +35,28 @@ export default function Dashboard() {
 
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null)
   const [activeTelemetryId, setActiveTelemetryId] = useState("W01")
+  const [dismissedImageId, setDismissedImageId] = useState<string | null>(null)
 
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
 
-  // Track resolution states in dashboard to calculate active alerts dynamically
-  const [resolutionSteps, setResolutionSteps] = useState<Record<string, number>>({})
-
   useEffect(() => {
     const role = localStorage.getItem("role")
     if (!role) {
       router.push("/login")
     }
-
-    const loadSteps = () => {
-      const saved = localStorage.getItem("event_resolution_steps")
-      if (saved) {
-        try {
-          setResolutionSteps(JSON.parse(saved))
-        } catch (e) {}
-      }
-    }
-    loadSteps()
-
-    // Listen for storage changes if multiple tabs/components update it
-    window.addEventListener("storage", loadSteps)
-    const interval = setInterval(loadSteps, 1000)
-    return () => {
-      window.removeEventListener("storage", loadSteps)
-      clearInterval(interval)
-    }
   }, [router])
 
   const activeWorkers = workers.filter((worker) => worker.active)
 
-  // FIX: Only count critical/high alerts that are NOT marked as resolved (step 3)
+  // FIX: Uses persistent event.stage instead of the broken local resolutionSteps
   const activeAlerts = events.filter((event) => {
     if (event.severity !== "CRITICAL" && event.severity !== "HIGH") return false
     
-    // Check if resolved
-    if (resolutionSteps[event.id] === 3) return false
+    // Check if resolved using the context stage
+    if (event.stage === "resolved") return false
 
     const d = new Date(event.timestamp)
     if (Number.isNaN(d.getTime())) return false
@@ -84,8 +65,13 @@ export default function Dashboard() {
     return dateStr === selectedDate
   })
 
+  // Grab the most recent active alert to check for snapshots
+  const latestAlert = activeAlerts.length > 0 ? activeAlerts[0] : null;
+  const displayAlert = latestAlert && latestAlert.id !== dismissedImageId ? latestAlert : null;
+
+  // FIX: Checks if the string includes FALL (catching "FALL DETECTED")
   const fallsOnDate = events.filter((event) => {
-    if (event.type !== "FALL") return false
+    if (!event.type.includes("FALL")) return false
     const d = new Date(event.timestamp)
     if (Number.isNaN(d.getTime())) return false
     
@@ -171,6 +157,14 @@ export default function Dashboard() {
                 )}
               </div>
             </section>
+
+            {/* Incident Alert Component placed here for immediate visibility */}
+            <IncidentAlerts 
+              activeAlert={displayAlert} 
+              onDismiss={() => {
+                if (latestAlert) setDismissedImageId(latestAlert.id);
+              }} 
+            />
 
             <section className="grid grid-cols-1 sm:grid-cols-3 gap-5 mt-6">
               <StatCard title="Active Workers" value={activeWorkers.length.toString()} color="text-blue-600 dark:text-blue-400" />

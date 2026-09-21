@@ -38,19 +38,27 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
   const sensors = [
     {
       name: "MAX30102",
-      ok: isSimulated ? false : worker.system.sensors.max30102,
+      ok: isSimulated 
+        ? false 
+        : worker.health?.status === "LIVE" || worker.health?.status === "FINGER_REMOVED",
     },
     {
       name: "DHT11",
-      ok: isSimulated ? false : worker.system.sensors.dht11,
+      ok: isSimulated 
+        ? false 
+        : worker.environment?.status === "LIVE",
     },
     {
       name: "OV5647",
-      ok: isSimulated ? false : worker.system.sensors.ov5647,
+      ok: isSimulated 
+        ? false 
+        : worker.camera?.status === "ONLINE",
     },
     {
       name: "MPU6050",
-      ok: isSimulated ? false : worker.system.sensors.mpu6050,
+      ok: isSimulated 
+        ? false 
+        : !!worker.safety,
     },
   ]
 
@@ -68,7 +76,8 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
         </div>
 
         <StatusPill
-          ok={isSimulated ? false : worker.system.piOnline}
+          // Assumes worker.status tracks overall connection activity for the Pi
+          ok={isSimulated ? false : worker.status === "active" || worker.status === "online" || !!worker.system?.piOnline}
           onlineLabel="PI ONLINE"
           offlineLabel="PI OFFLINE"
         />
@@ -98,7 +107,7 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
         </span>
 
         <span className="shrink-0 text-lg font-black text-blue-600 dark:text-blue-400">
-          {isSimulated || worker.system.storageFreePercent == null
+          {isSimulated || worker.system?.storageFreePercent == null
             ? "--"
             : `${worker.system.storageFreePercent}% free`}
         </span>
