@@ -40,13 +40,13 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
       name: "MAX30102",
       ok: isSimulated 
         ? false 
-        : worker.health?.status === "LIVE" || worker.health?.status === "FINGER_REMOVED",
+        : worker.health?.status === "LIVE" || worker.health?.status === "FINGER_REMOVED" || (worker.health?.heartRate ?? 0) > 0,
     },
     {
       name: "DHT11",
       ok: isSimulated 
         ? false 
-        : worker.environment?.status === "LIVE",
+        : worker.environment?.status === "LIVE" || (worker.environment?.temperature ?? 0) > 0,
     },
     {
       name: "OV5647",
@@ -76,7 +76,6 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
         </div>
 
         <StatusPill
-          // Assumes worker.status tracks overall connection activity for the Pi
           ok={isSimulated ? false : worker.status === "active" || worker.status === "online" || !!worker.system?.piOnline}
           onlineLabel="PI ONLINE"
           offlineLabel="PI OFFLINE"
@@ -109,7 +108,7 @@ export default function SensorStatusPanel({ workerId }: { workerId: string }) {
         <span className="shrink-0 text-lg font-black text-blue-600 dark:text-blue-400">
           {isSimulated || worker.system?.storageFreePercent == null
             ? "--"
-            : `${worker.system.storageFreePercent}% free`}
+            : `${worker.system?.storageFreePercent}% free`}
         </span>
       </div>
     </div>
