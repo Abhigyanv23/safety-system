@@ -1,0 +1,5 @@
+flask
+requests
+python-socketio
+adafruit-circuitpython-dht
+adafruit-blinka
