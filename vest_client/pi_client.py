@@ -9,8 +9,13 @@ from flask import Flask, request, jsonify
 from gpiozero import OutputDevice
 import board
 import adafruit_dht
+from dotenv import load_dotenv
 
-LAPTOP_BACKEND_URL = "http://10.1.35.161:5001"
+# Load variables from the .env file
+load_dotenv()
+
+# Fetch the URL, with a fallback just in case the .env file is missing
+LAPTOP_BACKEND_URL = os.getenv("LAPTOP_BACKEND_URL", "http://127.0.0.1:5001")
 SNAPSHOT_PATH = os.path.expanduser("~/vest/alert_snapshot.jpg")
 
 VEST_DIR = os.path.dirname(SNAPSHOT_PATH)
